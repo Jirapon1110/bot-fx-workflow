@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>คู่มือการใช้งาน bot-fx-workflow</title>
+<style>
+  body { font-family: system-ui, "Noto Sans Thai", sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; line-height: 1.7; color: #1f2937; }
+  h1, h2 { color: #0f3460; }
+  code, pre { background: #f3f4f6; border-radius: 6px; }
+  code { padding: .1rem .35rem; }
+  pre { padding: .8rem 1rem; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #d1d5db; padding: .4rem .6rem; text-align: left; }
+  th { background: #eef2ff; }
+  .warn { background: #fff7ed; border-left: 4px solid #f97316; padding: .6rem 1rem; }
+</style>
+</head>
+<body>
+<h1>คู่มือการใช้งาน bot-fx-workflow</h1>
+<p>เครื่องมือบรรทัดคำสั่งที่ดึงอัตราแลกเปลี่ยนถัวเฉลี่ยถ่วงน้ำหนักระหว่างธนาคาร <strong>THB / USD</strong>
+จาก Bank of Thailand API ล่าสุด <strong>20 วันทำการ</strong> แล้วเก็บต่อท้าย (append) ลงฐานข้อมูล SQLite</p>
+
+<h2>1. สิ่งที่ต้องมี</h2>
+<ul>
+  <li><code>uv</code> (ติดตั้งตาม <a href="https://docs.astral.sh/uv/">docs.astral.sh/uv</a>)</li>
+  <li>API token ฟรีจาก <a href="https://portal.api.bot.or.th">portal.api.bot.or.th</a>
+      (สมัครสมาชิก &rarr; สร้าง Application &rarr; subscribe ผลิตภัณฑ์ <em>Exchange Rates</em> &rarr; คัดลอก token)</li>
+</ul>
+
+<h2>2. ติดตั้งและตั้งค่า</h2>
+<pre>uv sync
+copy .env.example .env      # macOS/Linux: cp .env.example .env</pre>
+<p>เปิดไฟล์ <code>.env</code> แล้วแก้ค่า:</p>
+<table>
+  <tr><th>ตัวแปร</th><th>จำเป็น</th><th>ความหมาย</th></tr>
+  <tr><td><code>BOT_API_TOKEN</code></td><td>ใช่</td><td>token จาก portal</td></tr>
+  <tr><td><code>APPLICANT_NAME</code></td><td>ใช่</td><td>ชื่อภาษาอังกฤษ (ตัวอักษร ตัวเลข <code>_</code> <code>-</code> เท่านั้น) ใช้ตั้งชื่อไฟล์ฐานข้อมูล</td></tr>
+  <tr><td><code>BOT_DB_DIR</code></td><td>ไม่</td><td>โฟลเดอร์เก็บฐานข้อมูล (ค่าเริ่มต้น <code>.venv</code>)</td></tr>
+</table>
+<p class="warn"><strong>ห้าม commit ไฟล์ <code>.env</code></strong> หรือ token ลง repository (ถูกตั้งค่าไว้ใน <code>.gitignore</code> แล้ว)</p>
+
+<h2>3. วิธีรัน</h2>
+<pre>uv run bot-fx</pre>
+<p>ตัวอย่างผลลัพธ์:</p>
+<pre>Fetched 20 points (2026-10-21 .. 2026-11-18); inserted 20 new rows into .venv\bot_api_daily_Name.db</pre>
+<p>รันซ้ำได้ปลอดภัย: ระบบเพิ่มเฉพาะวันที่ยังไม่มีในฐานข้อมูล (รันครั้งที่สองจะขึ้น <code>inserted 0 new rows</code>)</p>
+
+<h2>4. ผลลัพธ์ในฐานข้อมูล</h2>
+<p>ไฟล์: <code>.venv/bot_api_daily_{APPLICANT_NAME}.db</code> ตาราง <code>daily_ref_rate</code></p>
+<table>
+  <tr><th>คอลัมน์</th><th>ความหมาย</th></tr>
+  <tr><td><code>period</code> (PK)</td><td>วันที่ (ISO <code>YYYY-MM-DD</code>)</td></tr>
+  <tr><td><code>rate</code></td><td>บาทต่อ 1 ดอลลาร์สหรัฐ</td></tr>
+  <tr><td><code>currency_pair</code></td><td>คงที่ <code>THB/USD</code></td></tr>
+  <tr><td><code>fetched_at</code></td><td>เวลา (UTC) ที่บันทึกแถวนั้น</td></tr>
+</table>
+<p>ตัวอย่างการดูข้อมูล:</p>
+<pre>uv run python -c "import sqlite3; c=sqlite3.connect('.venv/bot_api_daily_Name.db'); print(c.execute('select * from daily_ref_rate order by period desc limit 5').fetchall())"</pre>
+
+<h2>5. ข้อควรรู้</h2>
+<ul>
+  <li>"20 วัน" ตีความเป็น <strong>20 data point ล่าสุด</strong> เพราะ API มีเฉพาะวันทำการ</li>
+  <li>API จำกัดช่วงวันที่ต่อคำขอ (~31 วัน) โปรแกรมจึงดึงย้อนหลังเป็นช่วง ๆ ให้อัตโนมัติ</li>
+  <li>ถ้าลบหรือสร้างโฟลเดอร์ <code>.venv</code> ใหม่ (เช่น <code>uv sync --reinstall</code>) ไฟล์ฐานข้อมูลที่อยู่ข้างในจะหาย ให้สำรองไว้หรือตั้ง <code>BOT_DB_DIR</code> ไปที่อื่น</li>
+</ul>
+
+<h2>6. แก้ปัญหาเบื้องต้น</h2>
+<table>
+  <tr><th>อาการ</th><th>สาเหตุ / วิธีแก้</th></tr>
+  <tr><td><code>BOT_API_TOKEN is not set</code></td><td>ยังไม่ได้ตั้งค่าใน <code>.env</code> หรือรันนอกโฟลเดอร์โปรเจกต์</td></tr>
+  <tr><td><code>APPLICANT_NAME must be set…</code></td><td>ตั้งชื่อเป็นภาษาอังกฤษ ไม่มีช่องว่างหรืออักขระพิเศษ</td></tr>
+  <tr><td><code>BOT API returned HTTP 401/403</code></td><td>token ผิด/หมดอายุ หรือยังไม่ได้ subscribe ผลิตภัณฑ์ Exchange Rates</td></tr>
+  <tr><td><code>HTTP 400</code></td><td>รูปแบบวันที่หรือช่วงวันที่ไม่ถูกต้อง (โปรแกรมจัดการให้เอง ถ้าพบให้แจ้งผู้พัฒนา)</td></tr>
+  <tr><td><code>Only N data points available</code></td><td>API คืนข้อมูลน้อยกว่า 20 แถวในช่วงที่ย้อนดู ข้อมูลที่ได้ถูกบันทึกแล้ว</td></tr>
+</table>
+
+<h2>7. ทดสอบ</h2>
+<pre>uv run pytest</pre>
+<p>เทสต์ทำงานแบบออฟไลน์ (จำลอง HTTP) ไม่ต้องใช้ token</p>
+</body>
+</html>
