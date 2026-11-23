@@ -14,7 +14,8 @@ Instructions for AI agents working in this repository.
 ## Hard rules
 - **Never commit or print secrets.** `BOT_API_TOKEN` lives only in `.env` (git-ignored). Do not
   log request headers/URLs with credentials; `client.py` deliberately raises `ApiError` with the
-  status code only.
+  status code (plus a non-sensitive hint for 401/403) only, and keeps the token out of
+  `__traceback__` frame locals too (see `_attempt_request`'s docstring in client.py).
 - Keep `.env`, `.venv/`, `*.db` out of git.
 - Use `uv` for everything (no `pip install` into the project).
 
@@ -28,6 +29,6 @@ Instructions for AI agents working in this repository.
 
 ## Conventions
 - Python >= 3.11, type hints, small modules (config / client / storage / workflow / cli).
-- Storage must stay idempotent: `period` is the primary key and inserts use `INSERT OR IGNORE`.
+- Storage must stay idempotent: `period` is the primary key and inserts use `INSERT ... ON CONFLICT(period) DO NOTHING` (not `INSERT OR IGNORE`, which would also swallow NOT NULL violations).
 - Add or update a test in `tests/` for every behavior change.
 - Keep `README.md`, `docs/guide.html` and `NOTES.md` consistent with the code.

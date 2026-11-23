@@ -16,23 +16,35 @@ Bank of Thailand API and appends the latest **20 daily data points** to a SQLite
 ## Setup
 
 ```bash
+git clone https://github.com/Jirapon1110/bot-fx-workflow.git
+cd bot-fx-workflow
 uv sync
-cp .env.example .env        # Windows: copy .env.example .env
-# edit .env: set BOT_API_TOKEN and APPLICANT_NAME (English name, letters/digits/_/- only)
+copy .env.example .env      # macOS/Linux: cp .env.example .env
+# edit .env: replace the placeholder BOT_API_TOKEN with your real token, and set
+# APPLICANT_NAME (English name, letters/digits/_/- only)
 ```
 
-`.env` is git-ignored. **Never commit the token.**
+`.env` is git-ignored. **Never commit the token.** Save it as UTF-8. A non-empty variable
+already set in your shell takes precedence over the value in `.env`. The project's own `.env`
+is used even when you start the program from another folder (e.g. Task Scheduler).
+
+Notes: the database lives in `.venv` as the brief asks, so deleting/recreating `.venv` deletes
+it (set `BOT_DB_DIR` to keep it elsewhere). If the project folder path contains non-ASCII
+characters (e.g. Thai), `uv sync` may produce an install that cannot import the package; use
+`uv sync --no-editable` or keep the folder path ASCII.
 
 ## Run
+
+Run from the project directory (the folder that contains `.env`):
 
 ```bash
 uv run bot-fx
 ```
 
-Example output:
+Example output (the database path is printed as an absolute path):
 
 ```
-Fetched 20 points (2026-10-21 .. 2026-11-18); inserted 20 new rows into .venv/bot_api_daily_Name.db
+Fetched 20 points (2026-10-21 .. 2026-11-18); inserted 20 new rows into C:\...\bot-fx-workflow\.venv\bot_api_daily_Name.db
 ```
 
 Running it again appends only days that are not stored yet (`period` is the primary key), so it
@@ -44,7 +56,7 @@ is safe to schedule daily.
 |------------------|----------|------------------------------------------------------------|
 | `BOT_API_TOKEN`  | yes      | Token from the BOT portal                                  |
 | `APPLICANT_NAME` | yes      | English name used in the DB file name                      |
-| `BOT_DB_DIR`     | no       | Directory for the DB file (default `.venv`)                |
+| `BOT_DB_DIR`     | no       | Directory for the DB file: relative to the project, or an absolute path (default `.venv`) |
 
 ## Tests
 

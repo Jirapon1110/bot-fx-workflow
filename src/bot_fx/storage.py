@@ -14,7 +14,7 @@ CURRENCY_PAIR = "THB/USD"
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS daily_ref_rate (
     period        TEXT PRIMARY KEY,           -- ISO date, one row per business day
-    rate          REAL NOT NULL,              -- Baht per 1 USD
+    rate          REAL NOT NULL CHECK (rate > 0),  -- Baht per 1 USD
     currency_pair TEXT NOT NULL,
     fetched_at    TEXT NOT NULL               -- UTC ISO timestamp of the run that inserted it
 )

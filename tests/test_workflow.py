@@ -1,3 +1,5 @@
+"""End-to-end workflow tests: API -> windowed fetch -> latest-20 selection -> SQLite storage."""
+
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
@@ -58,7 +60,8 @@ def test_http_error_does_not_leak_token():
     with pytest.raises(ApiError) as exc:
         fetch_daily_rates(secret, date(2026, 1, 1), date(2026, 1, 2), client)
     assert "401" in str(exc.value) and secret not in str(exc.value)
-    assert exc.value.__cause__ is None and exc.value.__suppress_context__
+    # No chained exception at all: the original holds the request (and the token).
+    assert exc.value.__cause__ is None and exc.value.__context__ is None
 
 
 def test_connection_error_is_wrapped_without_token():
@@ -167,6 +170,119 @@ def test_run_walks_back_in_windows_when_holidays_leave_too_few_points(tmp_path):
     assert len(client.calls) >= 2
     assert all((e - s).days <= 30 for s, e in client.calls)
     assert client.calls[1][1] < client.calls[0][0]  # windows do not overlap
+
+
+@pytest.mark.parametrize(
+    "rate",
+    ["-5", "0", "1e308", "1_0", "٣٥.٥", "33.5.1", " 33.5", "1000", "1e2", True, [33.5], {"x": 1}],
+)
+def test_parse_rejects_implausible_or_oddly_formatted_rates(rate):
+    payload = {"result": {"data": {"data_detail": [{"period": "2026-01-02", "rate": rate}]}}}
+    with pytest.raises(ApiError):
+        parse_response(payload)
+
+
+@pytest.mark.parametrize("period", ["20260102", "2026-W01-5", "2026-01-02T00:00", " 2026-01-02", 20260102, None])
+def test_parse_rejects_non_strict_periods(period):
+    payload = {"result": {"data": {"data_detail": [{"period": period, "rate": "33.5"}]}}}
+    with pytest.raises(ApiError):
+        parse_response(payload)
+
+
+def test_fetch_drops_rows_outside_requested_window():
+    rows = [
+        {"period": "2020-01-01", "rate": "30.0"},  # too old
+        {"period": "2026-01-02", "rate": "33.0"},  # inside
+        {"period": "2030-01-01", "rate": "34.0"},  # future
+    ]
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"result": {"data": {"data_detail": rows}}})
+        )
+    )
+    got = fetch_daily_rates("tok", date(2026, 1, 1), date(2026, 1, 31), client)
+    assert [r.period for r in got] == [date(2026, 1, 2)]
+
+
+def test_huge_integer_rate_is_an_api_error_not_a_traceback():
+    payload = {"result": {"data": {"data_detail": [{"period": "2026-01-02", "rate": 10**400}]}}}
+    with pytest.raises(ApiError):
+        parse_response(payload)
+
+
+def test_bad_row_outside_requested_window_does_not_abort_the_run():
+    rows = [
+        {"period": "2020-01-01", "rate": "0"},  # invalid rate, but outside the window
+        {"period": "2026-01-02", "rate": "33.0"},
+    ]
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"result": {"data": {"data_detail": rows}}})
+        )
+    )
+    got = fetch_daily_rates("tok", date(2026, 1, 1), date(2026, 1, 31), client)
+    assert [r.rate for r in got] == [33.0]
+
+
+def test_bad_row_inside_requested_window_still_fails_loudly():
+    rows = [{"period": "2026-01-02", "rate": "0"}]
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"result": {"data": {"data_detail": rows}}})
+        )
+    )
+    with pytest.raises(ApiError):
+        fetch_daily_rates("tok", date(2026, 1, 1), date(2026, 1, 31), client)
+
+
+def test_empty_env_var_does_not_hide_value_in_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("BOT_API_TOKEN=from-dotenv\nAPPLICANT_NAME=Dot\n")
+    monkeypatch.setenv("BOT_API_TOKEN", "")
+    monkeypatch.delenv("APPLICANT_NAME", raising=False)
+    settings = load_settings()
+    assert settings.token == "from-dotenv" and settings.applicant_name == "Dot"
+
+
+def test_nonempty_env_var_wins_over_dotenv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("BOT_API_TOKEN=from-dotenv\nAPPLICANT_NAME=Dot\n")
+    monkeypatch.setenv("BOT_API_TOKEN", "from-shell")
+    assert load_settings().token == "from-shell"
+
+
+def test_settings_repr_hides_token():
+    settings = Settings(token="SECRET-TOKEN-123", applicant_name="a", db_path=Path("x"))
+    assert "SECRET-TOKEN-123" not in repr(settings)
+
+
+def test_non_ascii_token_gets_a_clear_config_error(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("APPLICANT_NAME", "Test")
+    for bad in ("tokก", "has space", "replace me with the token"):
+        monkeypatch.setenv("BOT_API_TOKEN", bad)
+        with pytest.raises(ConfigError, match="printable ASCII"):
+            load_settings()
+
+
+def test_non_ascii_token_at_client_level_is_not_reported_as_bad_json():
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))
+    with pytest.raises(ApiError, match="not allowed in an HTTP header"):
+        fetch_daily_rates("tokก", date(2026, 1, 1), date(2026, 1, 2), client)
+
+
+def test_empty_db_dir_falls_back_to_venv(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("")
+    monkeypatch.setenv("BOT_API_TOKEN", "tok")
+    monkeypatch.setenv("APPLICANT_NAME", "Test")
+    monkeypatch.setenv("BOT_DB_DIR", "")
+    assert load_settings().db_path.parent.name == ".venv"
+
+
+def test_storage_rejects_non_positive_rate(tmp_path):
+    with pytest.raises(sqlite3.IntegrityError):
+        append_rates(tmp_path / "x.db", [DailyRate(date(2026, 1, 2), -1.0)])
 
 
 def test_run_raises_when_api_returns_no_data(tmp_path):

@@ -29,7 +29,9 @@
 </ul>
 
 <h2>2. ติดตั้งและตั้งค่า</h2>
-<pre>uv sync
+<pre>git clone https://github.com/Jirapon1110/bot-fx-workflow.git
+cd bot-fx-workflow
+uv sync
 copy .env.example .env      # macOS/Linux: cp .env.example .env</pre>
 <p>เปิดไฟล์ <code>.env</code> แล้วแก้ค่า:</p>
 <table>
@@ -41,9 +43,10 @@ copy .env.example .env      # macOS/Linux: cp .env.example .env</pre>
 <p class="warn"><strong>ห้าม commit ไฟล์ <code>.env</code></strong> หรือ token ลง repository (ถูกตั้งค่าไว้ใน <code>.gitignore</code> แล้ว)</p>
 
 <h2>3. วิธีรัน</h2>
+<p>รันในโฟลเดอร์โปรเจกต์ (โฟลเดอร์ที่มีไฟล์ <code>.env</code>):</p>
 <pre>uv run bot-fx</pre>
-<p>ตัวอย่างผลลัพธ์:</p>
-<pre>Fetched 20 points (2026-10-21 .. 2026-11-18); inserted 20 new rows into .venv\bot_api_daily_Name.db</pre>
+<p>ตัวอย่างผลลัพธ์ (ระบบพิมพ์ path ของฐานข้อมูลแบบเต็ม):</p>
+<pre>Fetched 20 points (2026-10-21 .. 2026-11-18); inserted 20 new rows into C:\...\bot-fx-workflow\.venv\bot_api_daily_Name.db</pre>
 <p>รันซ้ำได้ปลอดภัย: ระบบเพิ่มเฉพาะวันที่ยังไม่มีในฐานข้อมูล (รันครั้งที่สองจะขึ้น <code>inserted 0 new rows</code>)</p>
 
 <h2>4. ผลลัพธ์ในฐานข้อมูล</h2>
@@ -56,19 +59,21 @@ copy .env.example .env      # macOS/Linux: cp .env.example .env</pre>
   <tr><td><code>fetched_at</code></td><td>เวลา (UTC) ที่บันทึกแถวนั้น</td></tr>
 </table>
 <p>ตัวอย่างการดูข้อมูล:</p>
-<pre>uv run python -c "import sqlite3; c=sqlite3.connect('.venv/bot_api_daily_Name.db'); print(c.execute('select * from daily_ref_rate order by period desc limit 5').fetchall())"</pre>
+<pre>uv run python -c "import glob, sqlite3; f = glob.glob('.venv/bot_api_daily_*.db')[0]; c = sqlite3.connect(f); print(f, c.execute('select * from daily_ref_rate order by period desc limit 5').fetchall())"</pre>
 
 <h2>5. ข้อควรรู้</h2>
 <ul>
   <li>"20 วัน" ตีความเป็น <strong>20 data point ล่าสุด</strong> เพราะ API มีเฉพาะวันทำการ</li>
-  <li>API จำกัดช่วงวันที่ต่อคำขอ (~31 วัน) โปรแกรมจึงดึงย้อนหลังเป็นช่วง ๆ ให้อัตโนมัติ</li>
-  <li>ถ้าลบหรือสร้างโฟลเดอร์ <code>.venv</code> ใหม่ (เช่น <code>uv sync --reinstall</code>) ไฟล์ฐานข้อมูลที่อยู่ข้างในจะหาย ให้สำรองไว้หรือตั้ง <code>BOT_DB_DIR</code> ไปที่อื่น</li>
+  <li>API จำกัดช่วงวันที่ต่อคำขอ (ทดสอบเมื่อ 2026-11-19: 31 วันผ่าน, 35 วันไม่ผ่าน) โปรแกรมจึงดึงย้อนหลังเป็นช่วง ๆ ละ 30 วันให้อัตโนมัติ</li>
+  <li>ถ้าลบหรือสร้างโฟลเดอร์ <code>.venv</code> ใหม่ ไฟล์ฐานข้อมูลที่อยู่ข้างในจะหาย ให้สำรองไว้หรือตั้ง <code>BOT_DB_DIR</code> ไปที่อื่น</li>
+  <li>ตัวแปรที่ตั้งไว้ใน shell อยู่แล้วจะมีผลก่อนค่าใน <code>.env</code> ถ้าชื่อไฟล์ฐานข้อมูลหรือ token ไม่ตรงที่ตั้งใจ ให้เช็กตัวแปรเหล่านั้น</li>
 </ul>
 
 <h2>6. แก้ปัญหาเบื้องต้น</h2>
 <table>
   <tr><th>อาการ</th><th>สาเหตุ / วิธีแก้</th></tr>
-  <tr><td><code>BOT_API_TOKEN is not set</code></td><td>ยังไม่ได้ตั้งค่าใน <code>.env</code> หรือรันนอกโฟลเดอร์โปรเจกต์</td></tr>
+  <tr><td><code>BOT_API_TOKEN is not set</code></td><td>ยังไม่ได้ตั้งค่าใน <code>.env</code> หรือรันนอกโฟลเดอร์โปรเจกต์ (ให้ <code>cd</code> เข้าโฟลเดอร์โปรเจกต์ก่อนรัน)</td></tr>
+  <tr><td><code>BOT_API_TOKEN must be plain printable ASCII</code></td><td>token มีอักขระแปลก ช่องว่าง หรือยังเป็นข้อความตัวอย่าง ให้คัดลอก token จาก portal ใหม่</td></tr>
   <tr><td><code>APPLICANT_NAME must be set…</code></td><td>ตั้งชื่อเป็นภาษาอังกฤษ ไม่มีช่องว่างหรืออักขระพิเศษ</td></tr>
   <tr><td><code>BOT API returned HTTP 401/403</code></td><td>token ผิด/หมดอายุ หรือยังไม่ได้ subscribe ผลิตภัณฑ์ Exchange Rates</td></tr>
   <tr><td><code>HTTP 400</code></td><td>รูปแบบวันที่หรือช่วงวันที่ไม่ถูกต้อง (โปรแกรมจัดการให้เอง ถ้าพบให้แจ้งผู้พัฒนา)</td></tr>
